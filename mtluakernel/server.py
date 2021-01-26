@@ -20,21 +20,21 @@ class BaseHandler(web.RequestHandler):
 def parse_code(req):
     if ('Content-Type' not in req.headers
         or req.headers['Content-Type'] != 'application/json'):
-        return None, (400, 'payload is not json')
+        return None, 'payload is not json'
 
     try:
         req = json.loads(req.body)
     except json.JSONDecodeError:
-        return None, (400, 'json is invalid')
+        return None, 'json is invalid'
 
     if not isinstance(req, dict):
-        return None, (400, 'json is not an object')
+        return None, 'json is not an object'
 
     if 'code' not in req:
-        return None, (400, "missing 'code' key")
+        return None, "missing 'code' key"
 
     if not isinstance(req['code'], str):
-        return None, (400, "'code' value is not a string")
+        return None, "'code' value is not a string"
 
     return req['code'], None
 
@@ -48,14 +48,13 @@ class ExecRequestsHandler(BaseHandler):
     async def post(self):
         code, err = parse_code(self.request)
         if code is None:
-            errcode, msg = err
-            self.send_error(errcode, msg=msg)
+            self.send_error(400, msg=err)
             return
 
         id = str(uuid4())
-        req = {'code': code, 'done_evt': Event()}
+        req = {'code': code, 'done_event': Event()}
         self.requests[id] = req
-        await req['done_evt'].wait()
+        await req['done_event'].wait()
 
         self.set_status(200)
         self.write({'result': req['result']})
@@ -65,36 +64,35 @@ class ExecRequestsHandler(BaseHandler):
 def parse_result(req):
     if ('Content-Type' not in req.headers
         or req.headers['Content-Type'] != 'application/json'):
-        return None, (400, 'payload is not json')
+        return None, 'payload is not json'
 
     try:
         res = json.loads(req.body)
     except json.JSONDecodeError:
-        return None, (400, 'json is invalid')
+        return None, 'json is invalid'
 
     if not isinstance(res, dict):
-        return None, (400, 'json is not an object')
+        return None, 'json is not an object'
 
     if 'id' not in res:
-        return None, (400, "missing 'id' key")
+        return None, "missing 'id' key"
 
     if not isinstance(res['id'], str):
-        return None, (400, "'id' value is not a string")
+        return None, "'id' value is not a string"
 
     if 'result' not in res:
-        return None, (400, "missing 'result' key")
+        return None, "missing 'result' key"
 
     if not isinstance(res['result'], str):
-        return None, (400, "'result' value is not a string")
+        return None, "'result' value is not a string"
 
     return {'id': res['id'], 'result': res['result']}, None
 
-class ExecResultHandler(BaseHandler):
+class ExecResultsHandler(BaseHandler):
     def post(self):
         res, err = parse_result(self.request)
         if res is None:
-            errcode, msg = err
-            self.send_error(errcode, msg=msg)
+            self.send_error(400, msg=err)
             return
 
         self.set_status(200)
@@ -102,14 +100,14 @@ class ExecResultHandler(BaseHandler):
         if req is None: return # ignore unknown ids
 
         req['result'] = res['result']
-        req['done_evt'].set() # wake synchronous request handler
+        req['done_event'].set() # wake synchronous request handler
 
 
 def listen():
     requests = {}
     app = web.Application([
         ('/exec_requests', ExecRequestsHandler, dict(requests=requests)),
-        ('/exec_results', ExecResultHandler, dict(requests=requests)),
+        ('/exec_results', ExecResultsHandler, dict(requests=requests)),
     ])
     return app.listen(2468)
 
