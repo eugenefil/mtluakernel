@@ -1,113 +1,111 @@
+# TODO need code id for code/result match in case of server/game restarts?
+# TODO client breaks conn while server is awaiting result
+# TODO unknown endpoints (e.g. /foo) end up sending html error
+
 import json
-from uuid import uuid4
 
 from tornado.httputil import responses as std_http_responses
 import tornado.web as web
-from tornado.locks import Event
+from tornado.concurrent import Future
 
 
 class BaseHandler(web.RequestHandler):
-    def initialize(self, requests):
-        self.requests = requests
+    def initialize(self, code):
+        self.code = code
 
-    def write_error(self, code, msg=None, **kwargs):
+    def write_error(self, errcode, msg=None, **kwargs):
         if msg is None:
-            resp = std_http_responses.get(code, 'Unknown')
-            msg = '%s %s' % (code, resp)
+            resp = std_http_responses.get(errcode, 'Unknown')
+            msg = '%s %s' % (errcode, resp)
         self.write({'error': msg})
 
 
-def parse_code(req):
-    if ('Content-Type' not in req.headers
-        or req.headers['Content-Type'] != 'application/json'):
-        return None, 'payload is not json'
-
+def parse_code(s):
     try:
-        req = json.loads(req.body)
+        obj = json.loads(s)
     except json.JSONDecodeError:
         return None, 'json is invalid'
 
-    if not isinstance(req, dict):
+    if not isinstance(obj, dict):
         return None, 'json is not an object'
 
-    if 'code' not in req:
+    if 'code' not in obj:
         return None, "missing 'code' key"
 
-    if not isinstance(req['code'], str):
+    if not isinstance(obj['code'], str):
         return None, "'code' value is not a string"
 
-    return req['code'], None
+    return obj['code'], None
 
-class ExecRequestsHandler(BaseHandler):
+class CodeHandler(BaseHandler):
     def get(self):
         self.set_status(200)
-        self.set_header('content-type', 'application/json')
-        self.write(json.dumps([{'id': id, 'code': req['code']}
-                               for id, req in self.requests.items()]))
+        self.write({'code': self.code.get('text', '')})
 
     async def post(self):
-        code, err = parse_code(self.request)
+        # Reject new code requests, if one is already processing. We
+        # don't do multiple requests, since it bears w/ it issues
+        # concerning sequential execution or what to do w/ later
+        # requests when the first one failed, i.e. queue
+        # management. This management must be done in clients, closer
+        # to where those requests originate. For example jupyter
+        # kernel does it and sends here one request at a time.
+        if self.code:
+            self.send_error(429) # too many requests
+            return
+
+        code, err = parse_code(self.request.body)
         if code is None:
             self.send_error(400, msg=err)
             return
 
-        id = str(uuid4())
-        req = {'code': code, 'done_event': Event()}
-        self.requests[id] = req
-        await req['done_event'].wait()
+        done = Future()
+        self.code.update(text=code, done_future=done)
+        res = await done
 
         self.set_status(200)
-        self.write({'result': req['result']})
-        del self.requests[id]
+        self.write({'result': res})
 
 
-def parse_result(req):
-    if ('Content-Type' not in req.headers
-        or req.headers['Content-Type'] != 'application/json'):
-        return None, 'payload is not json'
-
+def parse_result(s):
     try:
-        res = json.loads(req.body)
+        obj = json.loads(s)
     except json.JSONDecodeError:
         return None, 'json is invalid'
 
-    if not isinstance(res, dict):
+    if not isinstance(obj, dict):
         return None, 'json is not an object'
 
-    if 'id' not in res:
-        return None, "missing 'id' key"
-
-    if not isinstance(res['id'], str):
-        return None, "'id' value is not a string"
-
-    if 'result' not in res:
+    if 'result' not in obj:
         return None, "missing 'result' key"
 
-    if not isinstance(res['result'], str):
+    if not isinstance(obj['result'], str):
         return None, "'result' value is not a string"
 
-    return {'id': res['id'], 'result': res['result']}, None
+    return obj['result'], None
 
-class ExecResultsHandler(BaseHandler):
+class ResultHandler(BaseHandler):
     def post(self):
-        res, err = parse_result(self.request)
+        res, err = parse_result(self.request.body)
         if res is None:
             self.send_error(400, msg=err)
             return
 
         self.set_status(200)
-        req = self.requests.get(res['id'], None)
-        if req is None: return # ignore unknown ids
+        if not self.code: return # ignore unknown result
 
-        req['result'] = res['result']
-        req['done_event'].set() # wake synchronous request handler
+        # pass code execution result and wake CodeHandler.post()
+        self.code['done_future'].set_result(res)
+        # result is processed, clear the code object immediately
+        # (before the next GET /code could possibly access it)
+        self.code.clear()
 
 
 def listen():
-    requests = {}
+    kws = dict(code={}) # shared object for storing code request attrs
     app = web.Application([
-        ('/exec_requests', ExecRequestsHandler, dict(requests=requests)),
-        ('/exec_results', ExecResultsHandler, dict(requests=requests)),
+        ('/code', CodeHandler, kws),
+        ('/result', ResultHandler, kws),
     ])
     return app.listen(2468)
 
