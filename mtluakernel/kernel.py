@@ -1,6 +1,7 @@
 # TODO handle AsyncHTTPClient client exceptions
 # TODO handle json exceptions
 # TODO search for specific response id on server
+# TODO if not code or code.isspace(): return
 
 import sys
 import json
@@ -12,26 +13,22 @@ from tornado import gen
 from . import __version__
 from . import server
 
-def get_result(resp):
-    if ('Content-Type' not in resp.headers
-        or resp.headers['Content-Type'] != 'application/json'):
-        return None, 'payload is not json'
-
+def parse_result(s):
     try:
-        res = json.loads(resp.body)
+        obj = json.loads(s)
     except json.JSONDecodeError:
         return None, 'json is invalid'
 
-    if not isinstance(res, dict):
+    if not isinstance(obj, dict):
         return None, 'json is not an object'
 
-    if 'result' not in res:
+    if 'result' not in obj:
         return None, "missing 'result' key"
 
-    if not isinstance(res['result'], str):
+    if not isinstance(obj['result'], str):
         return None, "'result' value is not a string"
 
-    return res['result'], None
+    return obj['result'], None
 
 class MTLuaKernel(BaseKernel):
     implementation = 'Minetest Lua Kernel'
@@ -50,15 +47,16 @@ class MTLuaKernel(BaseKernel):
     @gen.coroutine
     def do_execute(self, code, silent, store_history=True,
                    user_expressions=None, allow_stdin=False):
-        if not code or code.isspace(): return
+        resp = yield AsyncHTTPClient().fetch(
+            'http://127.0.0.1:2468/code',
+            method='POST',
+            # w/ request_timeout=0 it seems to just hang w/out request
+            # being sent, so we use arbitrarily long timeout instead
+            # (since code may be executed arbitrarily long)
+            request_timeout=1e9,
+            body=json.dumps({'code': code}))
 
-        client = AsyncHTTPClient()
-        headers = {'content-type': 'application/json'}
-        body = json.dumps({'code': code})
-        resp = yield client.fetch('http://127.0.0.1:2468/exec_requests',
-                                  method='POST', headers=headers,
-                                  body=body)
-        res, err = get_result(resp)
+        res, err = parse_result(resp.body)
         if res is None:
             self.log.error('Got bad response from execution server: %s', err)
             return
@@ -67,7 +65,8 @@ class MTLuaKernel(BaseKernel):
             content = {'execution_count': self.execution_count,
                        'data': {'text/plain': res},
                        'metadata': {}}
-            self.send_response(self.iopub_socket, 'execute_result', content)
+            self.send_response(self.iopub_socket, 'execute_result',
+                               content)
 
         return {
             'status': 'ok',
