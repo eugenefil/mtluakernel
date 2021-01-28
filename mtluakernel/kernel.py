@@ -15,20 +15,26 @@ from . import server
 
 def parse_result(s):
     try:
-        obj = json.loads(s)
+        res = json.loads(s)
     except json.JSONDecodeError:
         return None, 'json is invalid'
 
-    if not isinstance(obj, dict):
+    if not isinstance(res, dict):
         return None, 'json is not an object'
 
-    if 'result' not in obj:
-        return None, "missing 'result' key"
+    if 'status' not in res:
+        return None, "missing 'status' key"
 
-    if not isinstance(obj['result'], str):
-        return None, "'result' value is not a string"
+    if not isinstance(res['status'], bool):
+        return None, "'status' value is not a boolean"
 
-    return obj['result'], None
+    if 'value' not in res:
+        return None, "missing 'value' key"
+
+    if not isinstance(res['value'], str):
+        return None, "'value' value is not a string"
+
+    return res, None
 
 class MTLuaKernel(BaseKernel):
     implementation = 'Minetest Lua Kernel'
@@ -60,18 +66,33 @@ class MTLuaKernel(BaseKernel):
         if res is None:
             self.log.error('Got bad response from execution server: %s', err)
             return
+        status, value = res['status'], res['value']
 
-        if not silent and res != 'nil':
-            content = {'execution_count': self.execution_count,
-                       'data': {'text/plain': res},
-                       'metadata': {}}
-            self.send_response(self.iopub_socket, 'execute_result',
-                               content)
+        if not silent:
+            if not status:
+                traceback = value.split('\n')
+                content = {
+                    'ename': 'Error',
+                    'evalue': traceback[0],
+                    'traceback': traceback,
+                }
+                self.send_response(self.iopub_socket, 'error', content)
+            elif value != 'nil':
+                content = {'execution_count': self.execution_count,
+                           'data': {'text/plain': value},
+                           'metadata': {}}
+                self.send_response(self.iopub_socket, 'execute_result',
+                                   content)
 
-        return {
-            'status': 'ok',
-            # The base class increments the execution count
-            'execution_count': self.execution_count,
-            'payload': [],
-            'user_expressions': {},
-        }
+        if status:
+            reply_content = {
+                'status': 'ok',
+                'payload': [],
+                'user_expressions': {},
+            }
+        else:
+            reply_content = {
+                'status': 'error',
+            }
+        reply_content['execution_count'] = self.execution_count
+        return reply_content

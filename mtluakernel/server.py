@@ -13,34 +13,16 @@ class BaseHandler(web.RequestHandler):
     def initialize(self, code):
         self.code = code
 
-    def write_error(self, errcode, msg=None, **kwargs):
-        if msg is None:
-            resp = std_http_responses.get(errcode, 'Unknown')
-            msg = '%s %s' % (errcode, resp)
+    def write_error(self, status_code, **kwargs):
+        resp = std_http_responses.get(status_code, 'Unknown')
+        msg = '%s %s' % (status_code, resp)
         self.write({'error': msg})
 
-
-def parse_code(s):
-    try:
-        obj = json.loads(s)
-    except json.JSONDecodeError:
-        return None, 'json is invalid'
-
-    if not isinstance(obj, dict):
-        return None, 'json is not an object'
-
-    if 'code' not in obj:
-        return None, "missing 'code' key"
-
-    if not isinstance(obj['code'], str):
-        return None, "'code' value is not a string"
-
-    return obj['code'], None
 
 class CodeHandler(BaseHandler):
     def get(self):
         self.set_status(200)
-        self.write({'code': self.code.get('text', '')})
+        self.write(self.code.get('body', {'code': ''}))
 
     async def post(self):
         # Reject new code requests, if one is already processing. We
@@ -54,48 +36,21 @@ class CodeHandler(BaseHandler):
             self.send_error(429) # too many requests
             return
 
-        code, err = parse_code(self.request.body)
-        if code is None:
-            self.send_error(400, msg=err)
-            return
-
         done = Future()
-        self.code.update(text=code, done_future=done)
+        self.code.update(body=self.request.body, done_future=done)
         res = await done
 
         self.set_status(200)
-        self.write({'result': res})
+        self.write(res)
 
-
-def parse_result(s):
-    try:
-        obj = json.loads(s)
-    except json.JSONDecodeError:
-        return None, 'json is invalid'
-
-    if not isinstance(obj, dict):
-        return None, 'json is not an object'
-
-    if 'result' not in obj:
-        return None, "missing 'result' key"
-
-    if not isinstance(obj['result'], str):
-        return None, "'result' value is not a string"
-
-    return obj['result'], None
 
 class ResultHandler(BaseHandler):
     def post(self):
-        res, err = parse_result(self.request.body)
-        if res is None:
-            self.send_error(400, msg=err)
-            return
-
         self.set_status(200)
         if not self.code: return # ignore unknown result
 
         # pass code execution result and wake CodeHandler.post()
-        self.code['done_future'].set_result(res)
+        self.code['done_future'].set_result(self.request.body)
         # result is processed, clear the code object immediately
         # (before the next GET /code could possibly access it)
         self.code.clear()
