@@ -61,7 +61,7 @@ class MTLuaKernel(BaseKernel):
             self.log.error('Got bad response from execution server: %s', err)
             return
 
-        if not silent:
+        if not silent and res != 'nil':
             content = {'execution_count': self.execution_count,
                        'data': {'text/plain': res},
                        'metadata': {}}
