@@ -28,11 +28,14 @@ def parse_result(s):
     if not isinstance(res['status'], bool):
         return None, "'status' value is not a boolean"
 
-    if 'value' not in res:
-        return None, "missing 'value' key"
-
-    if not isinstance(res['value'], str):
+    if 'value' in res and not isinstance(res['value'], str):
         return None, "'value' value is not a string"
+
+    if 'stdout' in res and not isinstance(res['stdout'], str):
+        return None, "'stdout' value is not a string"
+
+    if not ('value' in res or 'stdout' in res):
+        return None, "at least one of keys 'value' or 'stdout' must be present"
 
     return res, None
 
@@ -66,33 +69,27 @@ class MTLuaKernel(BaseKernel):
         if res is None:
             self.log.error('Got bad response from execution server: %s', err)
             return
-        status, value = res['status'], res['value']
+        value, stdout = res.get('value'), res.get('stdout')
 
         if not silent:
-            if not status:
-                traceback = value.split('\n')
-                content = {
-                    'ename': 'Error',
-                    'evalue': traceback[0],
-                    'traceback': traceback,
-                }
-                self.send_response(self.iopub_socket, 'error', content)
-            elif value != 'nil':
+            if stdout is not None:
+                content = {'name': 'stdout', 'text': stdout}
+                self.send_response(self.iopub_socket, 'stream', content)
+
+            if value is not None and value != 'nil':
                 content = {'execution_count': self.execution_count,
                            'data': {'text/plain': value},
                            'metadata': {}}
                 self.send_response(self.iopub_socket, 'execute_result',
                                    content)
 
-        if status:
+        if res['status']:
             reply_content = {
                 'status': 'ok',
                 'payload': [],
                 'user_expressions': {},
             }
         else:
-            reply_content = {
-                'status': 'error',
-            }
+            reply_content = {'status': 'error'}
         reply_content['execution_count'] = self.execution_count
         return reply_content
