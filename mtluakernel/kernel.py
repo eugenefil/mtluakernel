@@ -34,9 +34,6 @@ def parse_result(s):
     if 'stdout' in res and not isinstance(res['stdout'], str):
         return None, "'stdout' value is not a string"
 
-    if not ('value' in res or 'stdout' in res):
-        return None, "at least one of keys 'value' or 'stdout' must be present"
-
     return res, None
 
 class MTLuaKernel(BaseKernel):
