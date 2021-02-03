@@ -73,7 +73,7 @@ class MTLuaKernel(BaseKernel):
                 content = {'name': 'stdout', 'text': stdout}
                 self.send_response(self.iopub_socket, 'stream', content)
 
-            if value is not None and value != 'nil':
+            if value is not None:
                 content = {'execution_count': self.execution_count,
                            'data': {'text/plain': value},
                            'metadata': {}}
