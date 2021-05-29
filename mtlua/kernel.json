@@ -1,0 +1,11 @@
+{
+ "argv": [
+  "python",
+  "-m",
+  "mtluakernel",
+  "-f",
+  "{connection_file}"
+ ],
+ "display_name": "Minetest Lua",
+ "language": "lua"
+}
