@@ -1,7 +1,3 @@
-# TODO need code id for code/result match in case of server/game restarts?
-# TODO client breaks conn while server is awaiting result
-# TODO unknown endpoints (e.g. /foo) end up sending html error
-
 import json
 
 from tornado.httputil import responses as std_http_responses

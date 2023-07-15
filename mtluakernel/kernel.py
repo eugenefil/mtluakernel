@@ -1,8 +1,3 @@
-# TODO handle AsyncHTTPClient client exceptions
-# TODO handle json exceptions
-# TODO search for specific response id on server
-# TODO if not code or code.isspace(): return
-
 import sys
 import json
 
