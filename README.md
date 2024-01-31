@@ -31,7 +31,7 @@ jupyter notebook
 
 Create new notebook by clicking New -> Notebook. In the "Select Kernel" dialogue choose "Minetest Lua".
 
-Start Minetest. Create and start a world with the aforementioned mtluarunner mod enabled. To test connection to Minetest execute the following Lua code in a notebook cell:
+Start Minetest. Create and start a world with the [mtluarunner](https://github.com/eugenefil/mtluarunner) mod enabled. To test connection to Minetest execute the following Lua code in a notebook cell:
 
 ```lua
 print(minetest.get_version())
